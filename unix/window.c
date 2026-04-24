@@ -93,7 +93,7 @@ struct GtkFrontend {
     GtkBox *hbox;
     GtkAdjustment *sbar_adjust;
     GtkWidget *menu, *specialsmenu, *specialsitem1, *specialsitem2,
-        *restartitem;
+        *restartitem, *alwaysontopitem;
     GtkWidget *sessionsmenu;
 #ifndef NOT_X_WINDOWS
     Display *disp;
@@ -153,6 +153,9 @@ struct GtkFrontend {
     cmdline_get_passwd_input_state cmdline_get_passwd_state;
     LogContext *logctx;
     bool exited;
+    bool reconnecting;
+    guint reconnect_timer_id;
+    bool keep_above;
     struct unicode_data ucsdata;
     Conf *conf;
     eventlog_stuff *eventlogstuff;
@@ -270,6 +273,10 @@ static void post_nonfatal_message_box(void *vctx, int result)
 static void gtk_seat_connection_fatal(Seat *seat, const char *msg)
 {
     GtkFrontend *inst = container_of(seat, GtkFrontend, seat);
+    if (inst->reconnecting) {
+        inst->exited = true;
+        return;
+    }
     if (conf_get_int(inst->conf, CONF_close_on_exit) == FORCE_ON) {
         fatal_message_box(inst, msg);
     } else {
@@ -506,6 +513,11 @@ GtkWidget *gtk_seat_get_window(Seat *seat)
 {
     GtkFrontend *inst = container_of(seat, GtkFrontend, seat);
     return inst->window;
+}
+
+GtkWidget *gtk_frontend_get_window(GtkFrontend *frontend)
+{
+    return frontend->window;
 }
 
 /*
@@ -2401,6 +2413,32 @@ static void key_pressed(GtkFrontend *inst)
         gtk_widget_destroy(inst->window);
 }
 
+static gboolean serial_reconnect_timer(gpointer data)
+{
+    GtkFrontend *inst = (GtkFrontend *)data;
+    inst->reconnect_timer_id = 0;
+
+    if (inst->backend)
+        return G_SOURCE_REMOVE;
+
+    logevent(inst->logctx, "----- Attempting serial port reconnect -----");
+    term_pwron(inst->term, false);
+    inst->exited = false;
+    inst->reconnecting = true;
+    start_backend(inst);
+    inst->reconnecting = false;
+
+    if (!inst->backend) {
+        int delay = conf_get_int(inst->conf, CONF_serial_reconnect_delay);
+        inst->exited = true;
+        inst->reconnect_timer_id = g_timeout_add(
+            delay * 1000, serial_reconnect_timer, inst);
+    } else {
+        logevent(inst->logctx, "----- Serial port reconnected -----");
+    }
+    return G_SOURCE_REMOVE;
+}
+
 static void exit_callback(void *vctx)
 {
     GtkFrontend *inst = (GtkFrontend *)vctx;
@@ -2409,6 +2447,17 @@ static void exit_callback(void *vctx)
     if (!inst->exited &&
         (exitcode = backend_exitcode(inst->backend)) >= 0) {
         destroy_inst_connection(inst);
+
+        if (conf_get_int(inst->conf, CONF_protocol) == PROT_SERIAL &&
+            conf_get_bool(inst->conf, CONF_serial_reconnect)) {
+            int delay = conf_get_int(inst->conf, CONF_serial_reconnect_delay);
+            logeventf(inst->logctx,
+                      "----- Serial port disconnected, reconnecting in %d seconds -----",
+                      delay);
+            inst->reconnect_timer_id = g_timeout_add(
+                delay * 1000, serial_reconnect_timer, inst);
+            return;
+        }
 
         close_on_exit = conf_get_int(inst->conf, CONF_close_on_exit);
         if (close_on_exit == FORCE_ON ||
@@ -2445,6 +2494,10 @@ static void destroy_inst_connection(GtkFrontend *inst)
 
 static void delete_inst(GtkFrontend *inst)
 {
+    if (inst->reconnect_timer_id) {
+        g_source_remove(inst->reconnect_timer_id);
+        inst->reconnect_timer_id = 0;
+    }
     int dialog_slot;
     for (dialog_slot = 0; dialog_slot < DIALOG_SLOT_LIMIT; dialog_slot++) {
         if (inst->dialogs[dialog_slot]) {
@@ -4664,6 +4717,44 @@ static void compute_whole_window_size(GtkFrontend *inst,
 }
 #endif
 
+void always_on_top_menuitem(GtkMenuItem *item, gpointer data);
+
+static void set_keep_above(GtkFrontend *inst, bool on)
+{
+    inst->keep_above = on;
+    gtk_window_set_keep_above(GTK_WINDOW(inst->window), on);
+
+    /* Sync right-click check menu item without re-triggering callback */
+    if (inst->alwaysontopitem) {
+        g_signal_handlers_block_by_func(
+            inst->alwaysontopitem, always_on_top_menuitem, inst);
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(inst->alwaysontopitem), on);
+        g_signal_handlers_unblock_by_func(
+            inst->alwaysontopitem, always_on_top_menuitem, inst);
+    }
+
+    /* Sync menu bar action state (present in puttyapp/GtkApplicationWindow) */
+    GAction *action = g_action_map_lookup_action(
+        G_ACTION_MAP(inst->window), "alwaysontop");
+    if (action)
+        g_simple_action_set_state(G_SIMPLE_ACTION(action),
+                                  g_variant_new_boolean(on));
+}
+
+void always_on_top_menuitem(GtkMenuItem *item, gpointer data)
+{
+    GtkFrontend *inst = (GtkFrontend *)data;
+    bool active = gtk_check_menu_item_get_active(
+        GTK_CHECK_MENU_ITEM(inst->alwaysontopitem));
+    set_keep_above(inst, active);
+}
+
+void gtk_frontend_set_keep_above(GtkFrontend *frontend, bool on)
+{
+    set_keep_above(frontend, on);
+}
+
 void clear_scrollback_menuitem(GtkMenuItem *item, gpointer data)
 {
     GtkFrontend *inst = (GtkFrontend *)data;
@@ -5022,6 +5113,11 @@ void new_session_menuitem(GtkMenuItem *item, gpointer data)
 void restart_session_menuitem(GtkMenuItem *item, gpointer data)
 {
     GtkFrontend *inst = (GtkFrontend *)data;
+
+    if (inst->reconnect_timer_id) {
+        g_source_remove(inst->reconnect_timer_id);
+        inst->reconnect_timer_id = 0;
+    }
 
     if (!inst->backend) {
         logevent(inst->logctx, "----- Session restarted -----");
@@ -5657,6 +5753,15 @@ void new_session_window(Conf *conf, const char *geometry_string)
             gtk_widget_show(menuitem);                                  \
         } while (0)
 
+#define MKCHECKITEM(title, func) do                                     \
+        {                                                               \
+            menuitem = gtk_check_menu_item_new_with_label(title);       \
+            gtk_container_add(GTK_CONTAINER(inst->menu), menuitem);     \
+            gtk_widget_show(menuitem);                                  \
+            g_signal_connect(G_OBJECT(menuitem), "activate",            \
+                             G_CALLBACK(func), inst);                   \
+        } while (0)
+
         if (new_session)
             MKMENUITEM("New Session...", new_session_menuitem);
         MKMENUITEM("Restart Session", restart_session_menuitem);
@@ -5686,6 +5791,8 @@ void new_session_window(Conf *conf, const char *geometry_string)
         gtk_widget_hide(inst->specialsitem2);
         MKMENUITEM("Clear Scrollback", clear_scrollback_menuitem);
         MKMENUITEM("Reset Terminal", reset_terminal_menuitem);
+        MKCHECKITEM("Always on Top", always_on_top_menuitem);
+        inst->alwaysontopitem = menuitem;
         MKSEP();
         MKMENUITEM("Copy to " CLIPNAME_EXPLICIT_OBJECT,
                    copy_clipboard_menuitem);
@@ -5699,6 +5806,7 @@ void new_session_window(Conf *conf, const char *geometry_string)
 #undef MKMENUITEM
 #undef MKSUBMENU
 #undef MKSEP
+#undef MKCHECKITEM
     }
 
     inst->textcursor = make_mouse_ptr(inst, GDK_XTERM);

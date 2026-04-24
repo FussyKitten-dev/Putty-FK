@@ -507,6 +507,16 @@ CONF_OPTION(serflow,
     SAVE_KEYWORD("SerialFlowControl"),
     STORAGE_ENUM(serflow),
 )
+CONF_OPTION(serial_reconnect,
+    VALUE_TYPE(BOOL),
+    DEFAULT_BOOL(false),
+    SAVE_KEYWORD("SerialReconnect"),
+)
+CONF_OPTION(serial_reconnect_delay,
+    VALUE_TYPE(INT),
+    DEFAULT_INT(5),
+    SAVE_KEYWORD("SerialReconnectDelay"),
+)
 
 /* SUPDUP options */
 CONF_OPTION(supdup_location,

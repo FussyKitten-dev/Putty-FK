@@ -135,6 +135,10 @@ static void startup(GApplication *app, gpointer user_data)
     g_menu_append(section, "Clear Scrollback", "win.clearscrollback");
     g_menu_append(section, "Reset Terminal", "win.resetterm");
 
+    section = g_menu_new();
+    g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
+    g_menu_append(section, "Always on Top", "win.alwaysontop");
+
 #if GTK_CHECK_VERSION(3,12,0)
 #define SET_ACCEL(app, command, accel) do                       \
     {                                                           \
@@ -184,6 +188,13 @@ WIN_ACTION_LIST(WIN_ACTION_ENTRY)
 #undef WIN_ACTION_ENTRY
 };
 
+static void win_alwaysontop_change_state(
+    GSimpleAction *action, GVariant *value, gpointer data)
+{
+    GtkFrontend *frontend = (GtkFrontend *)data;
+    gtk_frontend_set_keep_above(frontend, g_variant_get_boolean(value));
+}
+
 static GtkApplication *app;
 GtkWidget *make_gtk_toplevel_window(GtkFrontend *frontend)
 {
@@ -192,6 +203,14 @@ GtkWidget *make_gtk_toplevel_window(GtkFrontend *frontend)
                                     win_actions,
                                     G_N_ELEMENTS(win_actions),
                                     frontend);
+
+    GSimpleAction *aot = g_simple_action_new_stateful(
+        "alwaysontop", NULL, g_variant_new_boolean(false));
+    g_signal_connect(aot, "change-state",
+                     G_CALLBACK(win_alwaysontop_change_state), frontend);
+    g_action_map_add_action(G_ACTION_MAP(win), G_ACTION(aot));
+    g_object_unref(aot);
+
     return win;
 }
 

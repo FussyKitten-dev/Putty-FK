@@ -206,6 +206,8 @@ enum DialogSlot {
     DIALOG_SLOT_LIMIT /* must remain last */
 };
 GtkWidget *gtk_seat_get_window(Seat *seat);
+GtkWidget *gtk_frontend_get_window(GtkFrontend *frontend);
+void gtk_frontend_set_keep_above(GtkFrontend *frontend, bool on);
 void register_dialog(Seat *seat, enum DialogSlot slot, GtkWidget *dialog);
 void unregister_dialog(Seat *seat, enum DialogSlot slot);
 void set_window_cfg_icon(GtkWidget *window);

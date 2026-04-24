@@ -399,8 +399,9 @@ static void serial_select_result(int fd, int event)
             if (errno == EWOULDBLOCK)
                 return;        /* spurious */
 #endif
-            perror("read serial port");
-            exit(1);
+            logeventf(serial->logctx, "Serial port read error: %s",
+                      strerror(errno));
+            finished = true;
         } else if (ret > 0) {
             serial->inbufsize = seat_stdout(serial->seat, buf, ret);
             serial_uxsel_setup(serial); /* might acquire backlog and freeze */

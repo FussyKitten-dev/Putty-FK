@@ -3269,6 +3269,16 @@ void setup_config_box(struct controlbox *b, bool midsession,
         ctrl_droplist(s, "Flow control", 'f', 40,
                       HELPCTX(serial_flow), serial_flow_handler,
                       I(ser_vt->serial_flow_mask));
+
+        s = ctrl_getset(b, "Connection/Serial", "serreconnect",
+                        "Reconnect on disconnect");
+        ctrl_checkbox(s, "Reconnect automatically when serial port disconnects",
+                      'r', HELPCTX(no_help),
+                      conf_checkbox_handler, I(CONF_serial_reconnect));
+        ctrl_editbox(s, "Seconds between reconnect attempts", 'y', 40,
+                     HELPCTX(no_help),
+                     conf_editbox_handler, I(CONF_serial_reconnect_delay),
+                     ED_INT);
     }
 
     if (DISPLAY_RECONFIGURABLE_PROTOCOL(PROT_TELNET)) {
