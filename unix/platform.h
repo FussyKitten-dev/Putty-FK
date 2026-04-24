@@ -175,8 +175,8 @@ void gtkcomm_setup(void);
  * main-gtk-application.c to window.c */
 enum MenuAction {
     MA_COPY, MA_PASTE, MA_COPY_ALL, MA_DUPLICATE_SESSION,
-    MA_RESTART_SESSION, MA_CHANGE_SETTINGS, MA_CLEAR_SCROLLBACK,
-    MA_RESET_TERMINAL, MA_EVENT_LOG
+    MA_RESTART_SESSION, MA_DISCONNECT_SESSION, MA_CHANGE_SETTINGS,
+    MA_CLEAR_SCROLLBACK, MA_RESET_TERMINAL, MA_EVENT_LOG
 };
 void app_menu_action(GtkFrontend *frontend, enum MenuAction);
 

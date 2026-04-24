@@ -117,6 +117,7 @@ static void startup(GApplication *app, gpointer user_data)
 
     section = g_menu_new();
     g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
+    g_menu_append(section, "Disconnect", "win.disconnect");
     g_menu_append(section, "Restart Session", "win.restart");
     g_menu_append(section, "Duplicate Session", "win.duplicate");
 
@@ -169,6 +170,7 @@ static void startup(GApplication *app, gpointer user_data)
     X("paste", MA_PASTE)                        \
     X("copyall", MA_COPY_ALL)                   \
     X("duplicate", MA_DUPLICATE_SESSION)        \
+    X("disconnect", MA_DISCONNECT_SESSION)      \
     X("restart", MA_RESTART_SESSION)            \
     X("changesettings", MA_CHANGE_SETTINGS)     \
     X("clearscrollback", MA_CLEAR_SCROLLBACK)   \
